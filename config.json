@@ -1,0 +1,50 @@
+{
+    "TargetRequest":{
+        "SheetNames": [],
+        "FirstSheetName" : "",
+        "LastSheetName" : ""
+    },
+    "JsonRequests": [
+        {
+            "Type": "cell",
+            "Key": "tableName",
+            "Cell": "A4"
+        },
+        {
+            "Type": "rows",
+            "Key": "entities",
+            "Cell": "A8",
+            "TargetsType": "object",
+            "Targets": [
+                {
+                    "Key": "No",
+                    "Target": "A"
+                },
+                {
+                    "Key": "PhysicalName",
+                    "Target": "B"
+                },
+                {
+                    "Key": "LogicalName",
+                    "Target": "C"
+                },
+                {
+                    "Key": "Type",
+                    "Target": "D"
+                },
+                {
+                    "Key": "IsPrimary",
+                    "Target": "G"
+                },
+                {
+                    "Key": "IsNotNull",
+                    "Target": "H"
+                }
+            ]
+        }
+    ],
+    "ExportFileRequest": {
+        "Type": "cell",
+        "Cell": "A4"
+    }
+}
