@@ -1,0 +1,372 @@
+' 対象リクエスト対象定義
+Type TargetRequestInfo
+    SheetNames() As String
+End Type
+
+
+' 取得リクエスト対象定義
+Type JsonRequestTargetInfo
+    Key As String               ' Json出力時のキー（object用）
+    Target As String                ' 対象（rows例:"A"/cols例:"1"）
+End Type
+
+' 取得リクエスト定義
+Type JsonRequestInfo
+    Type As String                  ' 取得方法（cell:対象セルのみ/rows:対象セル以降の行/cols:対象セル以降の列/sheet:シート名）
+    Key As String                   ' Json出力時のキー
+    Cell As String                  ' 対象セル
+    TargetsType As String           ' 取得対象の型（rows/cols用。object:連想配列/それ以外:配列）
+    Targets() As JsonRequestTargetInfo  ' 取得対象
+    Count As Integer                ' 取得数（rows/cols用。空もしくは0以下設定時、Cell（対象セル）から空文字かNullが出現するまで取得）
+End Type
+
+' 出力ファイルリクエスト定義
+Type ExportFileRequestInfo
+    Type As String                  ' 取得方法（cell:対象セルのみ/sheet:シート名/custom:カスタム）
+    Cell As String                  ' 対象セル
+    FileName As String              ' ファイル名（custom例:"sampleFile"。未指定時、シート名。拡張子不要）
+End Type
+
+' セル範囲定義
+Type CellRangeInfo
+    StartCell As String
+    StartCol As String
+    StartColIndex As Integer
+    StartRow As Integer
+    EndCell As String
+    EndCol As String
+    EndColIndex As Integer
+    EndRow As Integer
+    ColCount As Integer
+    RowCount As Integer
+End Type
+
+' コンフィグ
+Type Config
+    TargetRequest As TargetRequestInfo
+    JsonRequests() As JsonRequestInfo
+    ExportFileRequest As ExportFileRequestInfo
+End Type
+
+' コンフィグ読込
+Function LoadConfig(wb As Workbook) As Config
+    ' ファイルパスを指定する（ファイルパスはこのマクロ基準で取得）
+    Dim strFilePath As String: strFilePath = ThisWorkbook.Path + "\" + "config.json"
+    Dim strFileText As String: strFileText = MyCommon.ReadTextFileToString(strFilePath)
+    
+    ' JSON変換
+    Dim dicConfig As Dictionary: Set dicConfig = JsonConverter.ParseJson(strFileText)
+    
+    ' コンフィグ読込
+    Dim typConfig As Config
+    
+    ' コンフィグ読込（対象リクエスト）
+    Call LoadConfigTargetRequest(wb, dicConfig, typConfig)
+    
+    ' コンフィグ読込（取得リクエスト）
+    Call LoadConfigJsonRequest(wb, dicConfig, typConfig)
+    
+    ' コンフィグ読込（出力ファイルリクエスト）
+    Call LoadConfigExportFileRequest(wb, dicConfig, typConfig)
+    
+    LoadConfig = typConfig
+End Function
+
+' コンフィグ読込（対象リクエスト）
+Sub LoadConfigTargetRequest(wb As Workbook, dicConfig As Dictionary, typConfig As Config)
+    Dim lstSheetNames() As String
+    Dim indexSheetName As Integer: indexSheetName = 0
+    Dim dicConfigTargetRequest As Dictionary: Set dicConfigTargetRequest = dicConfig("TargetRequest")
+    
+    If dicConfigTargetRequest.Exists("SheetNames") And dicConfigTargetRequest("SheetNames").Count > 0 Then
+        'シート名退避
+        Dim TargetRequestSheetName As Object
+        For Each TargetRequestSheetName In dicConfigTargetRequest("SheetNames")
+            ReDim Preserve lstSheetNames(indexSheetName)
+            lstSheetNames(indexSheetName) = TargetRequestSheetName
+            indexSheetName = indexSheetName + 1
+        Next TargetRequestSheetName
+    Else
+        'シート名が空の場合、すべてのシートを対象にする
+        For Each ws In wb.Worksheets
+            ReDim Preserve lstSheetNames(indexSheetName)
+            lstSheetNames(indexSheetName) = ws.Name
+            indexSheetName = indexSheetName + 1
+        Next ws
+    End If
+
+
+    ' 開始/最終シート名判定
+    Dim blnIsSheetNameContinue As Boolean
+    If Not MyCommon.IsNullOrEmpty(dicConfigTargetRequest("FirstSheetName")) Then
+        blnIsSheetNameContinue = True
+    End If
+    Dim SheetName As String
+    Dim i As Integer
+    indexSheetName = 0
+    For i = LBound(lstSheetNames) To UBound(lstSheetNames)
+        SheetName = lstSheetNames(i)
+        If Not MyCommon.IsNullOrEmpty(dicConfigTargetRequest("FirstSheetName")) And dicConfigTargetRequest("FirstSheetName") = SheetName Then
+            blnIsSheetNameContinue = False
+        End If
+        If blnIsSheetNameContinue Then
+            GoTo SheetNameContinueLoop
+        End If
+        ReDim Preserve typConfig.TargetRequest.SheetNames(indexSheetName)
+        typConfig.TargetRequest.SheetNames(indexSheetName) = SheetName
+        indexSheetName = indexSheetName + 1
+        If Not MyCommon.IsNullOrEmpty(dicConfigTargetRequest("LastSheetName")) And dicConfigTargetRequest("LastSheetName") = SheetName Then
+            Exit For
+        End If
+SheetNameContinueLoop:
+    Next i
+    
+    ' 例外判定
+    If indexSheetName = 0 Then
+        Err.Raise 9999, "CustomError", "Config:ReuqestTargetから対象シートを特定できませんでした。"
+    End If
+End Sub
+
+' コンフィグ読込（取得リクエスト）
+Sub LoadConfigJsonRequest(wb As Workbook, dicConfig As Dictionary, typConfig As Config)
+    ' 例外判定
+    If IsEmpty(dicConfig("JsonRequests")) Then
+        Err.Raise 9999, "CustomError", "Config:JsonRequestsは必須です"
+    End If
+    
+    Dim indexJsonRequest As Integer: indexJsonRequest = 0
+    For Each JsonRequest In dicConfig("JsonRequests")
+        Dim typJsonRequest As JsonRequestInfo
+        typJsonRequest.Type = JsonRequest("Type")
+        typJsonRequest.Key = JsonRequest("Key")
+        typJsonRequest.Cell = JsonRequest("Cell")
+        
+        If Not IsEmpty(JsonRequest("Targets")) Then
+            typJsonRequest.TargetsType = JsonRequest("TargetsType")
+            Dim indexJsonRequestTarget As Integer: indexJsonRequestTarget = 0
+            For Each JsonRequestTarget In JsonRequest("Targets")
+                Dim typJsonRequestTarget As JsonRequestTargetInfo
+                typJsonRequestTarget.Key = JsonRequestTarget("Key")
+                typJsonRequestTarget.Target = JsonRequestTarget("Target")
+                ReDim Preserve typJsonRequest.Targets(indexJsonRequestTarget)
+                typJsonRequest.Targets(indexJsonRequestTarget) = typJsonRequestTarget
+                indexJsonRequestTarget = indexJsonRequestTarget + 1
+            Next JsonRequestTarget
+        End If
+        typJsonRequest.Count = JsonRequest("Count")
+        
+        ReDim Preserve typConfig.JsonRequests(indexJsonRequest)
+        typConfig.JsonRequests(indexJsonRequest) = typJsonRequest
+        indexJsonRequest = indexJsonRequest + 1
+    Next
+End Sub
+
+' コンフィグ読込（出力ファイルリクエスト）
+Sub LoadConfigExportFileRequest(wb As Workbook, dicConfig As Dictionary, typConfig As Config)
+    Dim typExportFileRequest As ExportFileRequestInfo
+    If Not IsEmpty(dicConfig("ExportFileRequest")) Then
+        typExportFileRequest.Type = dicConfig("ExportFileRequest")("Type")
+        typExportFileRequest.Cell = dicConfig("ExportFileRequest")("Cell")
+        typExportFileRequest.FileName = dicConfig("ExportFileRequest")("FileName")
+    End If
+    typConfig.ExportFileRequest = typExportFileRequest
+End Sub
+
+' JSONファイル出力
+Sub ExportToJson(wb As Workbook, typConfig As Config)
+    For Each SheetName In typConfig.TargetRequest.SheetNames
+        ' デバッグ用
+        Debug.Print SheetName
+        
+        ' 対象シート取得
+        Dim wsTargetSheet As Worksheet: Set wsTargetSheet = wb.Sheets(SheetName)
+        
+        ' Jsonファイル出力
+        Call ExportSheetToJson(wsTargetSheet, typConfig)
+    Next
+End Sub
+
+' JSONファイル出力（シート）
+Sub ExportSheetToJson(wsTargetSheet As Worksheet, typConfig As Config)
+    ' Jsonデータ作成
+    Dim dicJson As Dictionary: Set dicJson = CreateJson(wsTargetSheet, typConfig)
+    
+    ' ファイル名作成
+    Dim strFileName As String: strFileName = MyExcel.GetExportFileName(wsTargetSheet, typConfig)
+    
+    ' ファイル出力
+    Call MyCommon.ExportToJson(dicJson, strFileName)
+End Sub
+
+' JSONデータ作成
+Function CreateJson(wsTargetSheet As Worksheet, typConfig As Config) As Dictionary
+    Dim dicJson As Dictionary: Set dicJson = CreateObject("Scripting.Dictionary")
+    
+    Dim indexJsonRequest As Integer: indexJsonRequest = 0
+    For indexJsonRequest = 0 To UBound(typConfig.JsonRequests)
+        Dim JsonRequest As JsonRequestInfo: JsonRequest = typConfig.JsonRequests(indexJsonRequest)
+        If JsonRequest.Type = "rows" Then
+            dicJson(JsonRequest.Key) = GetJsonRequestTargetByRows(wsTargetSheet, typConfig, JsonRequest)
+        ElseIf JsonRequest.Type = "cols" Then
+            dicJson(JsonRequest.Key) = GetJsonRequestTargetByCols(wsTargetSheet, typConfig, JsonRequest)
+        ElseIf JsonRequest.Type = "sheet" Then
+            dicJson(JsonRequest.Key) = wsTargetSheet.Name
+        Else
+            dicJson(JsonRequest.Key) = wsTargetSheet.Range(JsonRequest.Cell).Value
+        End If
+    Next indexJsonRequest
+    
+    Debug.Print JsonConverter.ConvertToJson(dicJson)
+    
+    Set CreateJson = dicJson
+End Function
+
+' 読込対象取得（行単位）
+Function GetJsonRequestTargetByRows(wsTargetSheet As Worksheet, typConfig As Config, JsonRequest As JsonRequestInfo) As Dictionary()
+    ' 対象範囲取得
+    Dim typCellRange As MyExcel.CellRangeInfo: typCellRange = MyExcel.GetTargetRangeInfo(wsTargetSheet, JsonRequest.Cell, False)
+    
+    Dim lstJsonRequestTargets() As Dictionary
+
+    ' 指定数分ループを行う
+    Dim intCount As Integer
+    If IsEmpty(JsonRequest.Count) Or JsonRequest.Count <= 0 Then
+        intCount = typCellRange.RowCount
+    Else
+        intCount = JsonRequest.Count
+    End If
+    
+    Dim indexRow As Integer: indexRow = 0
+    For indexRow = 0 To intCount - 1
+        If JsonRequest.TargetsType = "object" Then
+            ReDim Preserve lstJsonRequestTargets(indexRow)
+            Set lstJsonRequestTargets(indexRow) = GetJsonRequestTargetByRowsObjectItem(wsTargetSheet, typConfig, JsonRequest, typCellRange, indexRow)
+        Else
+            ReDim Preserve lstJsonRequestTargets(indexRow)
+            Set lstJsonRequestTargets(indexRow) = GetJsonRequestTargetByRowsCellItem(wsTargetSheet, typConfig, JsonRequest, typCellRange, indexRow)
+        End If
+    Next indexRow
+    
+    GetJsonRequestTargetByRows = lstJsonRequestTargets
+End Function
+
+' 読込対象取得（行単位_Object取得時）
+Function GetJsonRequestTargetByRowsObjectItem(wsTargetSheet As Worksheet, typConfig As Config, JsonRequest As JsonRequestInfo, typCellRange As CellRangeInfo, indexRow As Integer) As Dictionary
+    Dim dicJsonRequestTarget As Dictionary: Set dicJsonRequestTarget = CreateObject("Scripting.Dictionary")
+
+    Dim indexJsonRequestTarget As Integer: indexJsonRequestTarget = 0
+    For indexJsonRequestTarget = 0 To UBound(JsonRequest.Targets)
+        Dim JsonRequestTarget As JsonRequestTargetInfo: JsonRequestTarget = JsonRequest.Targets(indexJsonRequestTarget)
+        
+        Dim strTargetCell As String: strTargetCell = JsonRequestTarget.Target + Trim(typCellRange.StartRow + indexRow)
+        dicJsonRequestTarget(JsonRequestTarget.Key) = wsTargetSheet.Range(strTargetCell).Value
+    Next indexJsonRequestTarget
+    
+    Set GetJsonRequestTargetByRowsObjectItem = dicJsonRequestTarget
+End Function
+
+' 読込対象取得（行単位_通常取得時）
+Function GetJsonRequestTargetByRowsCellItem(wsTargetSheet As Worksheet, typConfig As Config, JsonRequest As JsonRequestInfo, typCellRange As CellRangeInfo, indexRow As Integer) As Object
+    Dim strTargetCell As String: strTargetCell = typCellRange.StartCol + Trim(typCellRange.StartRow + indexRow)
+    Set GetJsonRequestTargetByRowsCellItem = wsTargetSheet.Range(strTargetCell).Value
+End Function
+
+' 読込対象取得（列単位）
+Function GetJsonRequestTargetByCols(wsTargetSheet As Worksheet, typConfig As Config, JsonRequest As JsonRequestInfo) As Dictionary()
+    ' 対象範囲取得
+    Dim typCellRange As MyExcel.CellRangeInfo: typCellRange = MyExcel.GetVerticalTargetRangeInfo(wsTargetSheet, JsonRequest.Cell)
+    
+    Dim lstJsonRequestTargets() As Dictionary
+
+    ' 指定数分ループを行う
+    Dim intCount As Integer
+    If IsEmpty(JsonRequest.Count) Or JsonRequest.Count <= 0 Then
+        intCount = typCellRange.ColCount
+    Else
+        intCount = JsonRequest.Count
+    End If
+    
+    Dim indexCol As Integer: indexCol = 0
+    For indexCol = 0 To intCount - 1
+        If JsonRequest.TargetsType = "object" Then
+            ReDim Preserve lstJsonRequestTargets(indexCol)
+            Set lstJsonRequestTargets(indexCol) = GetJsonRequestTargetByColsObjectItem(wsTargetSheet, typConfig, JsonRequest, typCellRange, indexCol)
+        Else
+            ReDim Preserve lstJsonRequestTargets(indexCol)
+            Set lstJsonRequestTargets(indexCol) = GetJsonRequestTargetByColsCellItem(wsTargetSheet, typConfig, JsonRequest, typCellRange, indexCol)
+        End If
+    Next indexCol
+    
+    GetJsonRequestTargetByCols = lstJsonRequestTargets
+End Function
+
+' 読込対象取得（列単位_Object取得時）
+Function GetJsonRequestTargetByColsObjectItem(wsTargetSheet As Worksheet, typConfig As Config, JsonRequest As JsonRequestInfo, typCellRange As CellRangeInfo, indexCol As Integer) As Dictionary
+    Dim dicJsonRequestTarget As Dictionary: Set dicJsonRequestTarget = CreateObject("Scripting.Dictionary")
+
+    Dim indexJsonRequestTarget As Integer: indexJsonRequestTarget = 0
+    For indexJsonRequestTarget = 0 To UBound(JsonRequest.Targets)
+        Dim JsonRequestTarget As JsonRequestTargetInfo: JsonRequestTarget = JsonRequest.Targets(indexJsonRequestTarget)
+        dicJsonRequestTarget(JsonRequestTarget.Key) = wsTargetSheet.Range(CInt(JsonRequestTarget.Target), typCellRange.StartColIndex + indexCol).Value
+    Next indexJsonRequestTarget
+    
+    Set GetJsonRequestTargetByColsObjectItem = dicJsonRequestTarget
+End Function
+
+' 読込対象取得（列単位_通常取得時）
+Function GetJsonRequestTargetByColsCellItem(wsTargetSheet As Worksheet, typConfig As Config, JsonRequest As JsonRequestInfo, typCellRange As CellRangeInfo, indexCol As Integer) As Object
+    Set GetJsonRequestTargetByColsCellItem = wsTargetSheet.Range(CInt(JsonRequestTarget.Target), typCellRange.StartColIndex + indexCol).Value
+End Function
+
+' 読込対象範囲情報取得
+Function GetTargetRangeInfo(wsTargetSheet As Worksheet, strStartCell As String, isTargetColumn As Boolean) As CellRangeInfo
+    ' 開始セル情報
+    Dim celStartCell As Range
+    Set celStartCell = wsTargetSheet.Range(strStartCell)
+    
+    ' 範囲を取得
+    Dim rngAllCells As Range
+    If isTargetColumn Then
+        Set rngAllCells = wsTargetSheet.Range(strStartCell, wsTargetSheet.Cells(celStartCell.Row, wsTargetSheet.Columns.Count).End(xlUp))
+    Else
+        Set rngAllCells = wsTargetSheet.Range(strStartCell, wsTargetSheet.Cells(wsTargetSheet.Rows.Count, celStartCell.Column).End(xlUp))
+    End If
+    
+    ' 終了セル情報
+    Dim celEndCell As Range
+    Set celEndCell = rngAllCells.Cells(rngAllCells.Rows.Count, rngAllCells.Columns.Count)
+    
+    Dim result As CellRangeInfo
+    result.StartCell = Replace(celStartCell.Address, "$", "")
+    result.StartCol = Split(celStartCell.Address, "$")(1)
+    result.StartColIndex = celStartCell.Column
+    result.StartRow = celStartCell.Row
+    result.EndCell = Replace(celEndCell.Address, "$", "")
+    result.EndCol = Split(celEndCell.Address, "$")(1)
+    result.EndColIndex = celEndCell.Column
+    result.EndRow = celEndCell.Row
+    result.RowCount = celEndCell.Row - celStartCell.Row + 1
+    result.ColCount = celEndCell.Column - celStartCell.Column + 1
+    
+    GetTargetRangeInfo = result
+End Function
+
+' 出力ファイル名取得
+Function GetExportFileName(wsTargetSheet As Worksheet, typConfig As Config) As String
+    Dim strFileName As String
+
+    If Not MyCommon.IsNullOrEmpty(typConfig.ExportFileRequest.FileName) Then
+        strFileName = typConfig.ExportFileRequest.FileName
+    ElseIf typConfig.ExportFileRequest.Type = "sheet" Then
+        strFileName = wsTargetSheet.Name
+    ElseIf Not MyCommon.IsNullOrEmpty(typConfig.ExportFileRequest.Cell) Then
+        strFileName = wsTargetSheet.Range(typConfig.ExportFileRequest.Cell).Value
+    End If
+    
+    If MyCommon.IsNullOrEmpty(strFileName) Then
+        strFileName = wsTargetSheet.Name
+    End If
+    
+    strFileName = strFileName + ".json"
+    GetExportFileName = strFileName
+End Function
