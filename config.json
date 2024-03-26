@@ -7,12 +7,12 @@
     "JsonRequests": [
         {
             "RangeType": "cell",
-            "Key": "tableName",
+            "Key": "TableName",
             "Cell": "A4"
         },
         {
             "RangeType": "row",
-            "Key": "header",
+            "Key": "Header",
             "Cell": "A7",
             "Type": "object",
             "Targets": [
@@ -35,16 +35,12 @@
                 {
                     "Key": "IsPrimary",
                     "Target": "G"
-                },
-                {
-                    "Key": "IsNotNull",
-                    "Target": "H"
                 }
             ]
         },
         {
             "RangeType": "rows",
-            "Key": "entities",
+            "Key": "Entities",
             "Cell": "A8",
             "Type": "object",
             "Targets": [
@@ -67,10 +63,6 @@
                 {
                     "Key": "IsPrimary",
                     "Target": "G"
-                },
-                {
-                    "Key": "IsNotNull",
-                    "Target": "H"
                 }
             ]
         }
