@@ -1,0 +1,27 @@
+Sub Main()
+    ' 対象範囲取得
+    Dim wsTargetSheet As Worksheet: Set wsTargetSheet = ThisWorkbook.Sheets("Main")
+    Dim strPathStartCell As String: strPathStartCell = wsTargetSheet.Range("A2").Value
+    
+    Dim typCellRange As MyExcel.CellRangeInfo: typCellRange = MyExcel.GetTargetRangeInfo(wsTargetSheet, strPathStartCell, False)
+    Dim intCount As Integer
+    intCount = typCellRange.RowCount
+    
+    Dim indexRow As Integer: indexRow = 0
+    For indexRow = 0 To intCount - 1
+        Dim strWsPathCell As String: strWsPathCell = typCellRange.StartCol + Trim(typCellRange.StartRow + indexRow)
+        Dim strWsPath As String: strWsPath = wsTargetSheet.Range(strWsPathCell).Value
+        If Not MyCommon.IsNullOrEmpty(strWsPath) Then
+            ' ファイル出力実行
+            Dim strConfigPath As String: strConfigPath = ThisWorkbook.Path + "\" + "config.json"
+            Call MyExcel.ExecuteExportFile(strWsPath, strConfigPath)
+        End If
+    Next indexRow
+    
+    Debug.Print "finish"
+    
+    MsgBox "出力が完了しました"
+End Sub
+
+
+

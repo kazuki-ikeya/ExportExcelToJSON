@@ -1,0 +1,151 @@
+' 正規表現マッチ
+Function RegExpMatch(str As String, pattern As String) As String
+    'RegExpオブジェクトの作成
+    Dim reg As Object
+    Set reg = CreateObject("VBScript.RegExp")
+    
+    '正規表現の指定
+    With reg
+        .pattern = pattern      'パターンを指定
+        .IgnoreCase = False     '大文字と小文字を区別するか(False)、しないか(True)
+        .Global = True          '文字列全体を検索するか(True)、しないか(False)
+    End With
+    
+    Dim Matches
+    Set Matches = reg.Execute(str) '正規表現でのマッチングを実行
+    
+    RegExpMatch = Matches(0)
+End Function
+
+' String Null Or Empty
+Function IsNullOrEmpty(str As String) As Boolean
+    If IsEmpty(str) Or Trim(str) = "" Then
+        IsNullOrEmpty = True
+    Else
+        IsNullOrEmpty = False
+    End If
+End Function
+
+' JSONファイル出力
+Sub ExportToJson(objJson As Dictionary, strFileName As String, Optional strResultsDirName As String = "results")
+    Dim strJson As String: strJson = ConvertToJson(objJson)
+    ' ファイル出力
+    Call ExportFile(strJson, strFileName, strResultsDirName)
+End Sub
+
+' XMLファイル出力
+Sub ExportToXML(objJson As Dictionary, strFileName As String, Optional strResultsDirName As String = "results")
+    ' xmlに変換
+    Dim strJson As String: strJson = ConvertToJson(objJson)
+    Dim strXML As String: strXML = ConvertJsonToXml(strJson)
+    ' ファイル出力
+    Call ExportFile(strXML, strFileName, strResultsDirName)
+End Sub
+
+' ファイル出力
+Sub ExportFile(strFileText As String, strFileName As String, Optional strResultsDirName As String = "results")
+    ' フォルダが存在しない場合は作成する
+    Dim strDirPath As String: strDirPath = ThisWorkbook.Path + "\" + strResultsDirName
+    If Dir(strDirPath, vbDirectory) = "" Then
+        MkDir strDirPath
+    End If
+    
+    Dim adoSt As Object: Set adoSt = CreateObject("ADODB.Stream")
+    adoSt.Type = 2
+    adoSt.Charset = "utf-8"
+    adoSt.Open
+    adoSt.WriteText strFileText, 1
+    adoSt.SaveToFile strDirPath + "\" + strFileName, 2
+    adoSt.Close
+End Sub
+
+' JSON変換
+Function ConvertToJson(objJson As Dictionary, Optional isDecodeUnicodeEscape As Boolean = True) As String
+    Dim strJson As String: strJson = JsonConverter.ConvertToJson(objJson)
+    If isDecodeUnicodeEscape Then
+        ' 日本語そのまま扱いたいので日本語変換（システムコンフィグ作りたい）
+        strJson = DecodeUnicodeEscape(strJson)
+    End If
+    ConvertToJson = strJson
+End Function
+
+' JsonToXml変換
+Function ConvertJsonToXml(strJson As String, Optional strTopXmlTag As String = "body") As String
+    Dim objJson As Dictionary: Set objJson = JsonConverter.ParseJson(strJson)
+    Dim xmlStr As String: xmlStr = JsonToXmlRecursive(objJson, strTopXmlTag)
+    ConvertJsonToXml = xmlStr
+End Function
+
+' JsonToXml変換実行部
+Function JsonToXmlRecursive(jsonObj As Dictionary, elementName As Variant) As String
+    Dim xmlStr As String
+    Dim Key As Variant
+    
+    If elementName <> "" Then
+        xmlStr = "<" & elementName & ">"
+    End If
+    
+    For Each Key In jsonObj
+        If TypeName(jsonObj(Key)) = "Dictionary" Then
+            Dim xmlObject As Dictionary
+            Set xmlObject = jsonObj(Key)
+            xmlStr = xmlStr & JsonToXmlRecursive(xmlObject, Key)
+        ElseIf TypeName(jsonObj(Key)) = "Collection" Then
+            Dim item As Object
+            For Each item In jsonObj(Key)
+                xmlStr = xmlStr & JsonToXmlRecursive(item, Key)
+            Next item
+        Else
+            xmlStr = xmlStr & "<" & Key & ">" & jsonObj(Key) & "</" & Key & ">"
+        End If
+    Next Key
+    
+    If elementName <> "" Then
+        xmlStr = xmlStr & "</" & elementName & ">"
+    End If
+    
+    JsonToXmlRecursive = xmlStr
+End Function
+
+' ファイル読込
+Function ReadTextFileToString(strFilePath As String, Optional strCharset As String = "UTF-8") As String
+    Dim adoSt As Object: Set adoSt = CreateObject("ADODB.Stream")
+    adoSt.Charset = strCharset
+    adoSt.Open
+    adoSt.LoadFromFile strFilePath
+    
+    Dim textData As String
+    textData = adoSt.ReadText
+    adoSt.Close
+    
+    ReadTextFileToString = textData
+End Function
+
+' UNICODE文字列のデコード（日本語出力用）
+Function DecodeUnicodeEscape(inputString As String) As String
+    Dim outputString As String
+    Dim i As Integer
+    
+    outputString = ""
+    i = 1
+    
+    Do While i <= Len(inputString)
+        If Mid(inputString, i, 1) = "\" And i + 5 <= Len(inputString) Then
+            If Mid(inputString, i + 1, 1) = "u" Then
+                ' Unicodeエスケープされた文字を取得して元の文字に変換
+                Dim unicodeCodePoint As String
+                unicodeCodePoint = "&H" & Mid(inputString, i + 2, 4)
+                outputString = outputString & ChrW(CLng(unicodeCodePoint))
+                i = i + 6
+                GoTo CONTINUE1:
+            End If
+        End If
+        
+        ' エスケープされた文字以外はそのまま出力
+        outputString = outputString & Mid(inputString, i, 1)
+        i = i + 1
+CONTINUE1:
+    Loop
+    
+    DecodeUnicodeEscape = outputString
+End Function
